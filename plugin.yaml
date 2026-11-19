@@ -1,0 +1,31 @@
+name: wallapop
+id: wallapop
+version: 1.0.0
+description: "Search Wallapop - Spanish second-hand marketplace"
+author: Hermes Agent
+license: MIT
+tags:
+  - marketplace
+  - scraping
+  - espana
+  - classifieds
+
+# Tool definitions - these will be exposed to Hermes
+tools:
+  - name: wallapop_search
+    description: "Search Wallapop for items with filters (query, location, price, state, shipping)"
+    toolset: wallapop
+    schema: schemas.SEARCH_SCHEMA
+    handler: tools.search_wallapop
+
+  - name: wallapop_get_item
+    description: "Get detailed information about a specific item by ID or URL"
+    toolset: wallapop
+    schema: schemas.ITEM_SCHEMA
+    handler: tools.get_item_details
+
+# Python dependencies required by this plugin
+python_dependencies:
+  - beautifulsoup4
+  - lxml
+  - requests
