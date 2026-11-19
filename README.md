@@ -5,7 +5,7 @@ A Python plugin that enables searching the Spanish second-hand marketplace [Wall
 ## ⚠️ Important Limitations About Location Filters
 
 Wallapop **does not allow geographic filtering without authentication**. When you use:
-- `location` parameter (e.g., "Madrid", "Irun")
+- `location` parameter (e.g., "Madrid", "Barcelona")
 - `latitude`/`longitude` parameters
 
 The search returns **national results** without geographic filtering. This is a limitation imposed by Wallapop's API.
