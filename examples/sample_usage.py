@@ -1,6 +1,11 @@
-# Sample usage examples for Wallapop Plugin
+# Sample usage examples for the Wallapop plugin.
+#
+# Run after `pip install -e .` (package importable as `wallapop`).
 
 import json
+
+from wallapop.tools import search_wallapop as wallapop_search
+from wallapop.tools import get_item_details as wallapop_get_item
 
 def example_basic_search():
     """Basic search example."""

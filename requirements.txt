@@ -1,4 +1,5 @@
-requests>=2.28.0
-beautifulsoup4>=4.12.0
-lxml>=4.9.0
-playwright>=1.40.0
+requests>=2.28,<3
+beautifulsoup4>=4.12,<5
+lxml>=4.9,<6
+# Optional, for JavaScript-rendered results:
+#   pip install playwright && playwright install chromium

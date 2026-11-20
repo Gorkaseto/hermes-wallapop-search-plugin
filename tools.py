@@ -1,55 +1,18 @@
 """Wallapop plugin tools - scraping and search functionality.
 
-This plugin requires: beautifulsoup4, lxml, requests, playwright
-These will be installed automatically by Hermes plugin system.
-
-NOTE: For full functionality with JavaScript-rendered content, 
-the browser_exec tool in Hermes should be used, or a Playwright 
-environment with browser binaries installed.
+This plugin declares its Python dependencies (requests, beautifulsoup4, lxml)
+in plugin.yaml; Hermes installs them before the plugin is enabled, so the
+imports below are expected to be available. playwright is optional and used for
+JavaScript-rendered content; see api_client.py.
 """
 
 import json
 import re
 import logging
-import subprocess
 import sys
 from typing import Optional, Dict, Any, List
 
 logger = logging.getLogger(__name__)
-
-# Ensure dependencies are available at module level
-def _install_dependencies():
-    """Install required dependencies if not available."""
-    import shutil
-    
-    pip_path = shutil.which('pip')
-    if not pip_path:
-        pip_path = '/home/debianassistant/.hermes/tools/python-3.14.9+20261021-linux-x64/bin/pip'
-    
-    subprocess.check_call([
-        pip_path, "install",
-        "beautifulsoup4", "lxml", "requests",
-        "--quiet"
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-# Try to import required modules, install if missing
-_missing_deps = []
-try:
-    import bs4
-except ImportError:
-    _missing_deps.append('bs4')
-
-try:
-    import requests
-except ImportError:
-    _missing_deps.append('requests')
-
-if _missing_deps:
-    logger.warning(f"Missing dependencies: {_missing_deps}. Installing...")
-    try:
-        _install_dependencies()
-    except Exception as e:
-        logger.error(f"Failed to install dependencies: {e}")
 
 import requests
 from bs4 import BeautifulSoup
@@ -360,7 +323,8 @@ def search_wallapop(args: dict, **kwargs) -> str:
         radius_km: Search radius in kilometers (default: 20)
         min_price: Minimum price in euros
         max_price: Maximum price in euros
-        state: Item condition (nuevo, usado, como nuevo, reparable)
+        state: Legacy item condition (nuevo, usado, como nuevo, reparable) - use condition
+        condition: Item condition (nuevo, como nuevo, good, fair, has_given_it_all); single value, comma-separated string, or list
         shipping_available: Filter for items with shipping available
         free_shipping: Filter for items with free shipping only
         category: Item category (movilidad, telefonia, ordenadores, hogar, etc.)
@@ -373,7 +337,7 @@ def search_wallapop(args: dict, **kwargs) -> str:
     """
     try:
         # Import API client
-        from api_client import search_wallapop_api
+        from .api_client import search_wallapop_api
         
         # Extract parameters
         query = args.get('query', '')
@@ -384,6 +348,7 @@ def search_wallapop(args: dict, **kwargs) -> str:
         min_price = args.get('min_price')
         max_price = args.get('max_price')
         state = args.get('state')
+        condition = args.get('condition')
         shipping_available = args.get('shipping_available')
         free_shipping = args.get('free_shipping')
         category = args.get('category')
@@ -426,6 +391,7 @@ def search_wallapop(args: dict, **kwargs) -> str:
             min_price=min_price,
             max_price=max_price,
             state=state,
+            condition=condition,
             shipping_available=shipping_available,
             free_shipping=free_shipping,
             sort=sort,
@@ -451,7 +417,7 @@ def get_item_details(args: dict, **kwargs) -> str:
     """
     try:
         # Import API client
-        from api_client import get_item_details_api
+        from .api_client import get_item_details_api
         
         item_id = args.get('item_id')
         url = args.get('url')
