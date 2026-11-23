@@ -1,16 +1,18 @@
 """Wallapop API and web client for Hermes Agent.
 
-Provides robust access to Wallapop via:
-1. Direct internal API (requests) - fast, reliable, no browser overhead.
-2. Web scraping fallback (requests + BeautifulSoup + Next.js __NEXT_DATA__).
-3. Optional Playwright fallback if installed and JavaScript rendering is needed.
+Provides robust access to Wallapop using:
+1. Playwright (Headless Browser) as primary engine: bypasses CloudFront WAF
+   and renders client-side Next.js SPA listings, capturing rich data from
+   `api/v3/search/section` and the DOM. Launched lazily on demand.
+2. HTTP requests fallback: for environments without Playwright or when
+   direct endpoints respond.
 """
 
 import json
 import logging
 import re
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import quote, urlparse
+from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
@@ -239,13 +241,27 @@ def _normalize_condition(condition: Any, state: Optional[str] = None) -> Optiona
 def _format_search_item(raw: Dict[str, Any]) -> Dict[str, Any]:
     """Format an item dictionary into a consistent search result schema."""
     item_id = str(raw.get("id") or "")
-    web_slug = raw.get("web_slug") or raw.get("webSlug") or ""
+    web_slug = raw.get("web_slug") or raw.get("webSlug") or raw.get("slug") or ""
     if web_slug:
         url = f"https://es.wallapop.com/item/{web_slug}"
     elif item_id:
         url = f"https://es.wallapop.com/item/{item_id}"
     else:
         url = raw.get("url") or ""
+
+    # Title
+    raw_title = raw.get("title") or raw.get("name") or ""
+    if isinstance(raw_title, dict):
+        title = raw_title.get("original") or raw_title.get("translated") or ""
+    else:
+        title = str(raw_title)
+
+    # Description
+    raw_desc = raw.get("description") or ""
+    if isinstance(raw_desc, dict):
+        description = raw_desc.get("original") or raw_desc.get("translated") or ""
+    else:
+        description = str(raw_desc)
 
     # Normalize images
     raw_images = raw.get("images") or []
@@ -255,11 +271,29 @@ def _format_search_item(raw: Dict[str, Any]) -> Dict[str, Any]:
             if isinstance(img, str):
                 images.append(img)
             elif isinstance(img, dict):
-                src = img.get("original") or img.get("url") or img.get("medium") or ""
+                urls = img.get("urls") or {}
+                src = (
+                    urls.get("big")
+                    or urls.get("medium")
+                    or urls.get("small")
+                    or img.get("original")
+                    or img.get("url")
+                    or img.get("medium")
+                    or img.get("originalUrl")
+                    or ""
+                )
                 if src:
                     images.append(src)
     elif isinstance(raw_images, dict):
-        src = raw_images.get("original") or raw_images.get("url") or ""
+        urls = raw_images.get("urls") or {}
+        src = (
+            urls.get("big")
+            or urls.get("medium")
+            or urls.get("small")
+            or raw_images.get("original")
+            or raw_images.get("url")
+            or ""
+        )
         if src:
             images.append(src)
 
@@ -267,8 +301,8 @@ def _format_search_item(raw: Dict[str, Any]) -> Dict[str, Any]:
     loc_data = raw.get("location") or {}
     if isinstance(loc_data, dict):
         city = loc_data.get("city") or raw.get("city") or ""
-        postal_code = loc_data.get("postal_code") or loc_data.get("postalCode") or ""
-        region = loc_data.get("region") or ""
+        postal_code = loc_data.get("postal_code") or loc_data.get("postalCode") or loc_data.get("zip") or ""
+        region = loc_data.get("region") or loc_data.get("region2") or ""
     else:
         city = str(loc_data)
         postal_code = ""
@@ -280,6 +314,8 @@ def _format_search_item(raw: Dict[str, Any]) -> Dict[str, Any]:
         shipping_available = (
             shipping_data.get("user_allows_shipping")
             or shipping_data.get("item_is_shippable")
+            or shipping_data.get("isItemShippable")
+            or shipping_data.get("isShippingAllowedByUser")
             or shipping_data.get("available")
             or False
         )
@@ -291,30 +327,46 @@ def _format_search_item(raw: Dict[str, Any]) -> Dict[str, Any]:
         free_shipping = bool(raw.get("free_shipping"))
 
     # Seller
-    user_data = raw.get("user") or raw.get("seller") or {}
+    user_data = raw.get("user") or raw.get("seller") or raw.get("itemSeller") or {}
     seller = {
-        "id": str(user_data.get("id") or ""),
-        "name": user_data.get("micro_name") or user_data.get("name") or "",
+        "id": str(user_data.get("id") or raw.get("userId") or ""),
+        "name": user_data.get("micro_name") or user_data.get("microName") or user_data.get("name") or "",
         "verified": bool(user_data.get("verification", {}).get("phone") or user_data.get("verified")),
     }
 
+    # Price
     price_val = raw.get("price")
     if isinstance(price_val, dict):
-        price = price_val.get("amount") or price_val.get("value")
-        currency = price_val.get("currency", "EUR")
+        if "cash" in price_val and isinstance(price_val["cash"], dict):
+            price = price_val["cash"].get("amount") or price_val["cash"].get("value")
+            currency = price_val["cash"].get("currency", "EUR")
+        else:
+            price = price_val.get("amount") or price_val.get("value")
+            currency = price_val.get("currency", "EUR")
     else:
         price = price_val
         currency = raw.get("currency", "EUR")
 
+    # Condition
+    raw_cond = raw.get("condition")
+    if isinstance(raw_cond, dict):
+        condition = raw_cond.get("text") or raw_cond.get("title") or raw_cond.get("value") or "usado"
+    elif raw_cond:
+        condition = str(raw_cond)
+    elif raw.get("characteristics"):
+        condition = str(raw.get("characteristics"))
+    else:
+        condition = "nuevo" if raw.get("is_new") else "usado"
+
     return {
         "id": item_id,
         "url": url,
-        "title": raw.get("title") or raw.get("name") or "",
+        "title": title,
         "price": price,
         "currency": currency,
-        "description": (raw.get("description") or "")[:500],
-        "condition": raw.get("condition") or ("nuevo" if raw.get("is_new") else "usado"),
-        "images": images[:5],
+        "description": description[:1000],
+        "condition": condition,
+        "images": images[:10],
         "location": {
             "city": city,
             "region": region,
@@ -328,13 +380,129 @@ def _format_search_item(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def _execute_playwright_search(
+    url: str,
+    latitude: Optional[float] = None,
+    longitude: Optional[float] = None,
+    location_label: Optional[str] = None,
+    city: Optional[str] = None,
+    province: Optional[str] = None,
+    community: str = "España",
+) -> List[Dict[str, Any]]:
+    """Execute search via Playwright with anti-detection args and API response interception."""
+    if not _PLAYWRIGHT_AVAILABLE:
+        return []
+
+    intercepted_items: List[Dict[str, Any]] = []
+
+    def handle_response(response):
+        try:
+            resp_url = response.url
+            if "api/v3/search/section" in resp_url:
+                content_type = response.headers.get("content-type", "")
+                if "application/json" in content_type:
+                    data = response.json()
+                    sec = data.get("data", {}).get("section", {})
+                    items = sec.get("items", [])
+                    if isinstance(items, list) and items:
+                        for it in items:
+                            if isinstance(it, dict):
+                                intercepted_items.append(_format_search_item(it))
+        except Exception:
+            pass
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+                timeout=25000,
+            )
+            context = browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                ),
+                locale="es-ES",
+                viewport={"width": 1280, "height": 800},
+            )
+            page = context.new_page()
+            page.on("response", handle_response)
+
+            # Establish initial session on homepage
+            page.goto("https://es.wallapop.com", wait_until="domcontentloaded", timeout=20000)
+
+            # Set location in localStorage if provided
+            if latitude is not None and longitude is not None:
+                label = location_label or (f"{city}, {province}, ESP" if city and province else "España")
+                c_name = city or "Ciudad"
+                page.evaluate(f"""
+                    localStorage.setItem("searchLatitude", "{latitude}");
+                    localStorage.setItem("searchLongitude", "{longitude}");
+                    localStorage.setItem("searchLocationName", "{label}");
+                    localStorage.setItem("savedSearchLocation", JSON.stringify({{
+                        label: "{label}", title: "{c_name}", subtitle: "{community}, ESP",
+                        latitude: {latitude}, longitude: {longitude}, city: "{c_name}"
+                    }}));
+                """)
+
+            # Navigate to search URL
+            page.goto(url, wait_until="domcontentloaded", timeout=25000)
+            page.wait_for_timeout(3000)
+
+            # If intercepted items via API, use them
+            if intercepted_items:
+                browser.close()
+                return intercepted_items
+
+            # Fallback: extract rendered cards from the DOM
+            dom_items = page.evaluate("""() => {
+                const results = [];
+                const links = document.querySelectorAll('a[href*="/item/"]');
+                const seen = new Set();
+                for (const link of links) {
+                    const href = link.getAttribute('href');
+                    if (!href || seen.has(href)) continue;
+                    seen.add(href);
+                    
+                    const card = link.closest('article') || link.parentElement || link;
+                    const text = card.innerText || '';
+                    const img = card.querySelector('img');
+                    const imgSrc = img ? (img.getAttribute('src') || img.getAttribute('data-src')) : null;
+                    const priceMatch = text.match(/([0-9.,]+)\\s*€/);
+                    const price = priceMatch ? priceMatch[1] : null;
+                    const title = link.getAttribute('aria-label') || link.getAttribute('title') || (text.split('\\n')[0]);
+                    
+                    results.push({
+                        url: 'https://es.wallapop.com' + href,
+                        id: href.split('-').pop() || '',
+                        title: title ? title.trim() : '',
+                        price: price,
+                        images: imgSrc ? [imgSrc] : []
+                    });
+                }
+                return results;
+            }""")
+
+            browser.close()
+
+            items = []
+            for d in dom_items:
+                items.append(_format_search_item(d))
+            return items
+
+    except Exception as e:
+        logger.warning(f"Playwright search error: {e}")
+        return []
+
+
 def _fetch_api_search(params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Query Wallapop's internal search API."""
+    """Query Wallapop's search API with requests."""
     import requests
 
     api_url = "https://api.wallapop.com/api/v3/general/search"
     try:
-        resp = requests.get(api_url, params=params, headers=DEFAULT_HEADERS, timeout=12)
+        resp = requests.get(api_url, params=params, headers=DEFAULT_HEADERS, timeout=8)
         if resp.status_code == 200:
             data = resp.json()
             if isinstance(data, dict):
@@ -345,7 +513,7 @@ def _fetch_api_search(params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def _fetch_html_search(params: Dict[str, Any]) -> Optional[str]:
-    """Fetch search results page HTML."""
+    """Fetch search results page HTML via requests."""
     import requests
 
     html_url = "https://es.wallapop.com/search"
@@ -355,7 +523,7 @@ def _fetch_html_search(params: Dict[str, Any]) -> Optional[str]:
     )
 
     try:
-        resp = requests.get(html_url, params=params, headers=html_headers, timeout=12)
+        resp = requests.get(html_url, params=params, headers=html_headers, timeout=8)
         if resp.status_code == 200 and resp.text:
             return resp.text
     except Exception as e:
@@ -367,7 +535,6 @@ def _parse_html_search_results(html: str) -> List[Dict[str, Any]]:
     """Extract search items from HTML via __NEXT_DATA__ or fallback tags."""
     items: List[Dict[str, Any]] = []
 
-    # 1. Try __NEXT_DATA__ script
     match = re.search(r'<script id="__NEXT_DATA__" type="application/json">([^<]+)</script>', html)
     if match:
         try:
@@ -387,7 +554,6 @@ def _parse_html_search_results(html: str) -> List[Dict[str, Any]]:
         except (json.JSONDecodeError, TypeError):
             pass
 
-    # 2. Try link matching regex for items
     item_pattern = r'<a[^>]*href="(/item/([^"]+))"[^>]*aria-label="([^"]+)"[^>]*>'
     for m in re.finditer(item_pattern, html, re.DOTALL | re.IGNORECASE):
         item_path = m.group(1)
@@ -413,49 +579,6 @@ def _parse_html_search_results(html: str) -> List[Dict[str, Any]]:
     return items
 
 
-def _fetch_with_playwright(
-    url: str,
-    location: Optional[str] = None,
-    latitude: Optional[float] = None,
-    longitude: Optional[float] = None,
-    city: Optional[str] = None,
-    province: Optional[str] = None,
-    community: str = "España",
-) -> str:
-    """Fetch page using Playwright when JavaScript rendering is needed."""
-    if not _PLAYWRIGHT_AVAILABLE:
-        return ""
-
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True, timeout=15000)
-            context = browser.new_context()
-            page = context.new_page()
-            page.set_extra_http_headers({
-                "User-Agent": (
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-                )
-            })
-
-            if latitude is not None and longitude is not None:
-                label = f"{city}, {province}, ESP" if city and province else (location or "España")
-                page.goto("https://es.wallapop.com", wait_until="domcontentloaded", timeout=15000)
-                page.evaluate(f"""
-                    localStorage.setItem("searchLatitude", "{latitude}");
-                    localStorage.setItem("searchLongitude", "{longitude}");
-                    localStorage.setItem("searchLocationName", "{label}");
-                """)
-
-            page.goto(url, wait_until="domcontentloaded", timeout=20000)
-            html = page.content()
-            browser.close()
-            return html
-    except Exception as e:
-        logger.debug(f"Playwright execution failed: {e}")
-        return ""
-
-
 def search_wallapop_api(
     query: Optional[str] = None,
     location: Optional[str] = None,
@@ -477,7 +600,11 @@ def search_wallapop_api(
     time_filter: Optional[str] = None,
     condition: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """Search Wallapop items with full filter support."""
+    """
+    Search Wallapop items with full filter support.
+    Uses Playwright as primary engine when installed (required by Wallapop's WAF
+    and client-side SPA rendering), with requests fallback.
+    """
     if not query:
         return {"error": "Query parameter is required", "items": [], "total": 0}
 
@@ -488,84 +615,91 @@ def search_wallapop_api(
         longitude=longitude,
     )
 
-    # Build API and web parameters
-    api_params: Dict[str, Any] = {
-        "keywords": query,
-        "filters_source": "search_box",
-    }
+    # Build web parameters
     web_params: Dict[str, Any] = {
         "keywords": query,
     }
 
     if resolved_lat is not None and resolved_lng is not None:
-        api_params["latitude"] = str(resolved_lat)
-        api_params["longitude"] = str(resolved_lng)
         web_params["latitude"] = str(resolved_lat)
         web_params["longitude"] = str(resolved_lng)
         if radius_km:
-            api_params["distance_in_km"] = str(radius_km)
             web_params["distance_in_km"] = str(radius_km)
 
     if min_price is not None:
-        api_params["min_sale_price"] = str(min_price)
         web_params["min_sale_price"] = str(min_price)
     if max_price is not None:
-        api_params["max_sale_price"] = str(max_price)
         web_params["max_sale_price"] = str(max_price)
 
     # Category
     if category:
         cat_key = category.lower().strip()
         cat_id = CATEGORY_MAP.get(cat_key, cat_key)
-        api_params["category_ids"] = cat_id
         web_params["category_ids"] = cat_id
 
     # Condition
     cond_val = _normalize_condition(condition, state)
     if cond_val:
-        api_params["condition"] = cond_val
         web_params["condition"] = cond_val
 
     # Shipping
     if free_shipping:
-        api_params["shipping"] = "free"
         web_params["shipping"] = "free"
     elif shipping_available is not None:
-        val = "available" if shipping_available else "none"
-        api_params["shipping"] = val
-        web_params["shipping"] = val
+        web_params["shipping"] = "available" if shipping_available else "none"
 
     # Sort
     if sort:
         sort_clean = sort.lower().strip()
-        order_by = ORDER_MAP.get(sort_clean, sort_clean)
-        api_params["order_by"] = order_by
-        web_params["order_by"] = order_by
+        web_params["order_by"] = ORDER_MAP.get(sort_clean, sort_clean)
 
     # Pagination
     offset = (max(page, 1) - 1) * items_per_page
-    api_params["offset"] = str(offset)
-    api_params["step"] = str(items_per_page)
     web_params["offset"] = str(offset)
     web_params["count"] = str(items_per_page)
 
     search_url = f"https://es.wallapop.com/search?{requests_quote_params(web_params)}"
 
-    # 1. Try internal API
+    # 1. Primary Engine: Playwright (bypasses WAF and renders client-side Next.js SPA)
+    if _PLAYWRIGHT_AVAILABLE:
+        pw_items = _execute_playwright_search(
+            url=search_url,
+            latitude=resolved_lat,
+            longitude=resolved_lng,
+            location_label=location or city,
+            city=city,
+            province=province,
+            community=community,
+        )
+        if pw_items:
+            return {
+                "items": pw_items[:items_per_page],
+                "total": len(pw_items),
+                "page": page,
+                "has_more": len(pw_items) >= items_per_page,
+                "engine": "playwright",
+                "search_url": search_url,
+            }
+
+    # 2. Fallback: Internal API via requests
+    api_params = dict(web_params)
+    api_params["filters_source"] = "search_box"
     api_result = _fetch_api_search(api_params)
     if api_result:
         raw_items = api_result.get("search_objects") or api_result.get("items") or []
         items = [_format_search_item(item) for item in raw_items if isinstance(item, dict)]
-        total = api_result.get("total") or api_result.get("count") or len(items)
-        return {
-            "items": items[:items_per_page],
-            "total": int(total),
-            "page": page,
-            "has_more": len(items) >= items_per_page,
-            "search_url": search_url,
-        }
+        if items:
+            total = api_result.get("total") or api_result.get("count") or len(items)
+            return {
+                "items": items[:items_per_page],
+                "total": int(total),
+                "page": page,
+                "has_more": len(items) >= items_per_page,
+                "engine": "api",
+                "search_url": search_url,
+            }
 
-    # 2. Try HTML scraping fallback
+    # 3. Fallback: HTML scraping via requests
     html = _fetch_html_search(web_params)
     if html:
         items = _parse_html_search_results(html)
@@ -575,38 +709,25 @@ def search_wallapop_api(
                 "total": len(items),
                 "page": page,
                 "has_more": len(items) >= items_per_page,
+                "engine": "html_scraper",
                 "search_url": search_url,
             }
 
-    # 3. Try Playwright fallback if available
-    if _PLAYWRIGHT_AVAILABLE:
-        pw_html = _fetch_with_playwright(
-            search_url,
-            location=location,
-            latitude=resolved_lat,
-            longitude=resolved_lng,
-            city=city,
-            province=province,
-            community=community,
+    # If no results and Playwright not available, advise the user
+    message = "No results found."
+    if not _PLAYWRIGHT_AVAILABLE:
+        message = (
+            "No results returned. Wallapop requires client-side JavaScript rendering "
+            "and browser validation. Install Playwright (`pip install playwright && playwright install chromium`) "
+            "to enable full search functionality."
         )
-        if pw_html:
-            items = _parse_html_search_results(pw_html)
-            if items:
-                return {
-                    "items": items[:items_per_page],
-                    "total": len(items),
-                    "page": page,
-                    "has_more": len(items) >= items_per_page,
-                    "search_url": search_url,
-                }
 
-    # If all returned no items, return clean empty result
     return {
         "items": [],
         "total": 0,
         "page": page,
         "has_more": False,
-        "message": "No results found or endpoint temporarily unavailable",
+        "message": message,
         "search_url": search_url,
     }
 
@@ -629,33 +750,89 @@ def get_item_details_api(item_id: Optional[str] = None, url: Optional[str] = Non
 
     item_url = url or f"https://es.wallapop.com/item/{clean_id}"
 
-    # 1. Try internal API endpoint
+    # 1. Try Playwright if available (best for full client-rendered details)
+    if _PLAYWRIGHT_AVAILABLE:
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=["--disable-blink-features=AutomationControlled", "--no-sandbox"],
+                    timeout=20000,
+                )
+                context = browser.new_context(
+                    user_agent=(
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+                    ),
+                    locale="es-ES",
+                )
+                page = context.new_page()
+                page.goto("https://es.wallapop.com", wait_until="domcontentloaded", timeout=15000)
+                page.goto(item_url, wait_until="domcontentloaded", timeout=20000)
+                page.wait_for_timeout(2000)
+
+                item_details = page.evaluate("""() => {
+                    const nextScript = document.getElementById('__NEXT_DATA__');
+                    if (nextScript) {
+                        try {
+                            const data = JSON.parse(nextScript.innerText);
+                            const props = data.props && data.props.pageProps ? data.props.pageProps : {};
+                            for (const key of ['item', 'listing', 'product']) {
+                                if (props[key]) {
+                                    const it = Object.assign({}, props[key]);
+                                    if (props.itemSeller) it.user = props.itemSeller;
+                                    return it;
+                                }
+                            }
+                        } catch(e) {}
+                    }
+                    
+                    // DOM extraction fallback
+                    const titleEl = document.querySelector('h1') || document.querySelector('[class*="item-detail_ItemDetail__title"]');
+                    const priceEl = document.querySelector('[class*="item-detail_ItemDetail__price"]') || document.querySelector('[class*="price"]');
+                    const descEl = document.querySelector('[class*="item-detail_ItemDetail__description"]') || document.querySelector('p');
+                    const imgs = Array.from(document.querySelectorAll('img')).map(i => i.src).filter(s => s && s.includes('wallapop.com/images'));
+                    
+                    return {
+                        title: titleEl ? titleEl.innerText : '',
+                        price: priceEl ? priceEl.innerText : null,
+                        description: descEl ? descEl.innerText : '',
+                        images: imgs
+                    };
+                }""")
+                browser.close()
+
+                if item_details and (item_details.get("title") or item_details.get("price") or item_details.get("id")):
+                    res = _format_search_item(item_details)
+                    res["id"] = clean_id or res.get("id", "")
+                    res["url"] = item_url
+                    res["status"] = item_details.get("status", "disponible")
+                    return res
+        except Exception as e:
+            logger.debug(f"Playwright get_item error: {e}")
+
+    # 2. Try internal API endpoint via requests
     if clean_id:
         try:
             api_url = f"https://api.wallapop.com/api/v3/items/{clean_id}"
-            resp = requests.get(api_url, params={"language": "es"}, headers=DEFAULT_HEADERS, timeout=12)
+            resp = requests.get(api_url, params={"language": "es"}, headers=DEFAULT_HEADERS, timeout=8)
             if resp.status_code == 200:
                 item_data = resp.json()
                 if isinstance(item_data, dict):
                     res = _format_search_item(item_data)
                     res["description"] = item_data.get("description") or ""
                     res["status"] = item_data.get("status", "disponible")
-                    if "images" in item_data and isinstance(item_data["images"], list):
-                        res["images"] = [
-                            img.get("original") or img.get("url") if isinstance(img, dict) else str(img)
-                            for img in item_data["images"]
-                        ]
                     return res
         except Exception as e:
             logger.debug(f"API get item failed: {e}")
 
-    # 2. Try HTML scraping with requests
+    # 3. Try HTML scraping with requests
     try:
         html_headers = dict(DEFAULT_HEADERS)
         html_headers["Accept"] = (
             "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
         )
-        resp = requests.get(item_url, headers=html_headers, timeout=12)
+        resp = requests.get(item_url, headers=html_headers, timeout=8)
         if resp.status_code == 200 and resp.text:
             match = re.search(r'<script id="__NEXT_DATA__" type="application/json">([^<]+)</script>', resp.text)
             if match:
@@ -670,25 +847,6 @@ def get_item_details_api(item_id: Optional[str] = None, url: Optional[str] = Non
                         return res
     except Exception as e:
         logger.debug(f"HTML get item failed: {e}")
-
-    # 3. Try Playwright fallback if available
-    if _PLAYWRIGHT_AVAILABLE:
-        pw_html = _fetch_with_playwright(item_url)
-        if pw_html:
-            match = re.search(r'<script id="__NEXT_DATA__" type="application/json">([^<]+)</script>', pw_html)
-            if match:
-                try:
-                    data = json.loads(match.group(1))
-                    page_props = data.get("props", {}).get("pageProps", {})
-                    for key in ["item", "listing", "product"]:
-                        if key in page_props and isinstance(page_props[key], dict):
-                            item_data = page_props[key]
-                            res = _format_search_item(item_data)
-                            res["description"] = item_data.get("description") or ""
-                            res["status"] = item_data.get("status", "disponible")
-                            return res
-                except Exception:
-                    pass
 
     return {
         "error": "Could not retrieve item details",
