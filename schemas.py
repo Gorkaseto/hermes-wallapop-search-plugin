@@ -88,7 +88,7 @@ SEARCH_SCHEMA = {
             },
             "sort": {
                 "type": "string",
-                "enum": ["relevancia", "price_low_to_high", "price_high_to_low", "mas_recientes", "mas_cercanos"],
+                "enum": ["relevancia", "price_low_to_high", "price_high_to_low", "mas_recientes", "newest", "mas_cercanos"],
                 "description": "Sort order for results",
                 "default": "relevancia"
             },

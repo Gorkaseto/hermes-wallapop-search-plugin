@@ -90,7 +90,9 @@ def _build_search_url(
         "relevancia": "relevance",
         "precio_ascendente": "price_asc",
         "precio_descendente": "price_desc",
-        "mas_recientes": "newest_first",
+        "mas_recientes": "newest",
+        "newest": "newest",
+        "newest_first": "newest",
         "menos_recientes": "oldest_first",
     }
     if sort.lower() in sort_map:

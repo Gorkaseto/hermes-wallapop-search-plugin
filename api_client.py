@@ -111,8 +111,9 @@ ORDER_MAP: Dict[str, str] = {
     "precio_ascendente": "price_low_to_high",
     "price_high_to_low": "price_high_to_low",
     "precio_descendente": "price_high_to_low",
-    "mas_recientes": "newest_first",
-    "newest_first": "newest_first",
+    "mas_recientes": "newest",
+    "newest": "newest",
+    "newest_first": "newest",
     "mas_cercanos": "closest",
     "closest": "closest",
 }

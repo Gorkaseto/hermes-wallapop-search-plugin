@@ -28,7 +28,7 @@ Search Wallapop for items with various filters.
 - `shipping_available` (boolean, optional): Filter for items with shipping
 - `free_shipping` (boolean, optional): Filter for items with free shipping only
 - `category` (string, optional): Item category
-- `sort` (string, default: "relevancia"): "relevancia", "price_low_to_high", "price_high_to_low", "mas_recientes", "mas_cercanos"
+- `sort` (string, default: "relevancia"): "relevancia", "price_low_to_high", "price_high_to_low", "mas_recientes", "newest", "mas_cercanos"
 - `page` (integer, default: 1): Page number
 - `items_per_page` (integer, default: 20, max: 50): Results per page
 

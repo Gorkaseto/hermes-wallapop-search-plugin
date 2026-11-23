@@ -175,6 +175,14 @@ class TestCoordinatesAndMapping:
         assert _normalize_condition(["como nuevo", "good"]) == "as_good_as_new,good"
         assert _normalize_condition("lo ha dado todo") == "has_given_it_all"
 
+    def test_sort_order_mapping(self):
+        from wallapop.api_client import ORDER_MAP
+        assert ORDER_MAP["mas_recientes"] == "newest"
+        assert ORDER_MAP["newest"] == "newest"
+        assert ORDER_MAP["newest_first"] == "newest"
+        assert ORDER_MAP["price_low_to_high"] == "price_low_to_high"
+        assert ORDER_MAP["mas_cercanos"] == "closest"
+
 
 class TestLocateLocationTool:
     """Tests for the wallapop_locate tool."""
