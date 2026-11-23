@@ -17,50 +17,17 @@ from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
-# Known coordinates for principal Spanish cities for fast, network-free resolution
-SPANISH_CITIES_COORDS: Dict[str, Tuple[float, float]] = {
-    "madrid": (40.4168, -3.7038),
-    "barcelona": (41.3879, 2.1699),
-    "valencia": (39.4699, -0.3763),
-    "sevilla": (37.3891, -5.9845),
-    "zaragoza": (41.6488, -0.8891),
-    "malaga": (36.7213, -4.4214),
-    "málaga": (36.7213, -4.4214),
-    "murcia": (37.9922, -1.1307),
-    "palma": (39.5696, 2.6502),
-    "palma de mallorca": (39.5696, 2.6502),
-    "las palmas": (28.1235, -15.4363),
-    "bilbao": (43.2630, -2.9350),
-    "bilbo": (43.2630, -2.9350),
-    "alicante": (38.3452, -0.4810),
-    "cordoba": (37.8882, -4.7794),
-    "córdoba": (37.8882, -4.7794),
-    "valladolid": (41.6523, -4.7245),
-    "vigo": (42.2406, -8.7207),
-    "gijon": (43.5357, -5.6615),
-    "gijón": (43.5357, -5.6615),
-    "vitoria": (42.8467, -2.6716),
-    "vitoria-gasteiz": (42.8467, -2.6716),
-    "donostia": (43.3183, -1.9812),
-    "san sebastian": (43.3183, -1.9812),
-    "san sebastián": (43.3183, -1.9812),
-    "granada": (37.1773, -3.5986),
-    "oviedo": (43.3619, -5.8494),
-    "santander": (43.4623, -3.8099),
-    "pamplona": (42.8125, -1.6458),
-    "iruña": (42.8125, -1.6458),
-    "almeria": (36.8381, -2.4597),
-    "almería": (36.8381, -2.4597),
-    "burgos": (42.3440, -3.6969),
-    "salamanca": (40.9701, -5.6635),
-    "toledo": (39.8628, -4.0273),
-    "cadiz": (36.5271, -6.2886),
-    "cádiz": (36.5271, -6.2886),
-    "tarragona": (41.1189, 1.2445),
-    "girona": (41.9794, 2.8214),
-    "gerona": (41.9794, 2.8214),
-    "badajoz": (38.8794, -6.9706),
-}
+from .location import resolve_location, is_valid_spain_coords
+
+# Backward-compatible wrapper
+def resolve_coordinates(
+    location: Optional[str] = None,
+    latitude: Optional[float] = None,
+    longitude: Optional[float] = None,
+) -> Tuple[Optional[float], Optional[float]]:
+    """Resolve latitude and longitude coordinates."""
+    info = resolve_location(location=location, latitude=latitude, longitude=longitude)
+    return info.get("latitude"), info.get("longitude")
 
 # Category IDs mapping
 CATEGORY_MAP: Dict[str, str] = {
@@ -197,53 +164,6 @@ def ensure_playwright_installed() -> bool:
             return False
 
     return True
-
-
-def _geocode_location(location: str) -> Tuple[Optional[float], Optional[float]]:
-    """Geocode a location name using OpenStreetMap Nominatim with a fallback."""
-    try:
-        import urllib.request
-        import urllib.parse
-
-        url = (
-            "https://nominatim.openstreetmap.org/search?format=json&q="
-            f"{urllib.parse.quote(location)}&countrycodes=es&limit=1"
-        )
-        req = urllib.request.Request(url, headers={"User-Agent": "HermesWallapopPlugin/1.0"})
-        with urllib.request.urlopen(req, timeout=5) as response:
-            data = json.loads(response.read().decode())
-            if data and len(data) > 0:
-                return float(data[0].get("lat")), float(data[0].get("lon"))
-    except Exception as e:
-        logger.debug(f"Geocoding failed for '{location}': {e}")
-
-    return None, None
-
-
-def resolve_coordinates(
-    location: Optional[str] = None,
-    latitude: Optional[float] = None,
-    longitude: Optional[float] = None,
-) -> Tuple[Optional[float], Optional[float]]:
-    """Resolve latitude and longitude coordinates."""
-    if latitude is not None and longitude is not None:
-        try:
-            return float(latitude), float(longitude)
-        except (ValueError, TypeError):
-            pass
-
-    if not location or not isinstance(location, str):
-        return None, None
-
-    loc_clean = location.lower().strip()
-    if loc_clean in SPANISH_CITIES_COORDS:
-        return SPANISH_CITIES_COORDS[loc_clean]
-
-    for city, coords in SPANISH_CITIES_COORDS.items():
-        if city in loc_clean:
-            return coords
-
-    return _geocode_location(location)
 
 
 def _normalize_condition(condition: Any, state: Optional[str] = None) -> Optional[str]:
@@ -449,12 +369,21 @@ def search_wallapop_api(
 
     from playwright.sync_api import sync_playwright
 
-    # Resolve coordinates
-    resolved_lat, resolved_lng = resolve_coordinates(
+    # Resolve reliable coordinates and metadata
+    loc_info = resolve_location(
         location=location or city,
         latitude=latitude,
         longitude=longitude,
+        city=city,
+        province=province,
+        community=community,
     )
+    resolved_lat = loc_info.get("latitude")
+    resolved_lng = loc_info.get("longitude")
+    resolved_label = loc_info.get("label") or "España"
+    resolved_city = loc_info.get("city") or "Ciudad"
+    resolved_province = loc_info.get("province") or "España"
+    resolved_community = loc_info.get("community") or "España"
 
     # Build web parameters
     web_params: Dict[str, Any] = {
@@ -537,15 +466,13 @@ def search_wallapop_api(
 
             # Apply location setup in localStorage if coordinates given
             if resolved_lat is not None and resolved_lng is not None:
-                label = location or (f"{city}, {province}, ESP" if city and province else "España")
-                c_name = city or "Ciudad"
                 page_obj.evaluate(f"""
                     localStorage.setItem("searchLatitude", "{resolved_lat}");
                     localStorage.setItem("searchLongitude", "{resolved_lng}");
-                    localStorage.setItem("searchLocationName", "{label}");
+                    localStorage.setItem("searchLocationName", "{resolved_label}");
                     localStorage.setItem("savedSearchLocation", JSON.stringify({{
-                        label: "{label}", title: "{c_name}", subtitle: "{community}, ESP",
-                        latitude: {resolved_lat}, longitude: {resolved_lng}, city: "{c_name}"
+                        label: "{resolved_label}", title: "{resolved_city}", subtitle: "{resolved_province}, ESP",
+                        latitude: {resolved_lat}, longitude: {resolved_lng}, city: "{resolved_city}"
                     }}));
                 """)
 
@@ -559,6 +486,7 @@ def search_wallapop_api(
                     "total": len(intercepted_items),
                     "page": page,
                     "has_more": len(intercepted_items) >= items_per_page,
+                    "location_resolved": loc_info,
                     "search_url": search_url,
                 }
 
@@ -599,6 +527,7 @@ def search_wallapop_api(
                 "total": len(items),
                 "page": page,
                 "has_more": len(items) >= items_per_page,
+                "location_resolved": loc_info,
                 "search_url": search_url,
             }
 

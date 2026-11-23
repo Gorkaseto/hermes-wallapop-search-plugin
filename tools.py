@@ -228,3 +228,30 @@ def get_item_details(args: Any, **kwargs) -> str:
     except Exception as e:
         logger.exception("Error in get_item_details")
         return json.dumps({"error": str(e), "type": "detail_error"}, ensure_ascii=False)
+
+
+def locate_location(args: Any, **kwargs) -> str:
+    """
+    Resolve a Spanish city, municipality, neighborhood, or postal code into precise coordinates.
+
+    Args:
+        args: Dict containing:
+            - location (str, required): Place name, municipality, neighborhood, or 5-digit postal code
+
+    Returns:
+        JSON string with resolved location metadata and coordinates
+    """
+    try:
+        parsed_args = _parse_input_args(args)
+        loc = parsed_args.get("location") or parsed_args.get("query") or ""
+        if not loc or not str(loc).strip():
+            return json.dumps({"error": "Location parameter is required"}, ensure_ascii=False)
+
+        from .location import resolve_location
+
+        info = resolve_location(location=str(loc).strip())
+        return json.dumps(info, ensure_ascii=False, indent=2)
+
+    except Exception as e:
+        logger.exception("Error in locate_location")
+        return json.dumps({"error": str(e), "type": "locate_error"}, ensure_ascii=False)

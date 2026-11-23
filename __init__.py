@@ -30,6 +30,13 @@ def register(ctx):
         handler=tools.get_item_details,
     )
 
+    ctx.register_tool(
+        name="wallapop_locate",
+        toolset="wallapop",
+        schema=schemas.LOCATE_SCHEMA,
+        handler=tools.locate_location,
+    )
+
     # Bundle skills shipped in skills/<name>/SKILL.md
     skills_dir = Path(__file__).parent / "skills"
     if skills_dir.exists():

@@ -22,15 +22,20 @@ SEARCH_SCHEMA = {
             },
             "location": {
                 "type": "string",
-                "description": "Location name or city for the search (e.g., 'Madrid', 'Barcelona', 'Spain')"
+                "description": (
+                    "Location name, city, municipality, neighborhood, or 5-digit Spanish postal code "
+                    "(e.g., 'Getafe', 'Madrid', '28013', 'Barrio de Gràcia, Barcelona', 'Donostia', '41001'). "
+                    "The plugin automatically and accurately resolves exact coordinates. "
+                    "DO NOT guess or invent GPS coordinates yourself; pass the place name or postal code here."
+                )
             },
             "latitude": {
                 "type": "number",
-                "description": "Latitude coordinate for location-based search"
+                "description": "Optional explicit GPS latitude override. Only supply if the human user provided exact numerical coordinates; otherwise leave blank and use 'location'."
             },
             "longitude": {
                 "type": "number",
-                "description": "Longitude coordinate for location-based search"
+                "description": "Optional explicit GPS longitude override. Only supply if the human user provided exact numerical coordinates; otherwise leave blank and use 'location'."
             },
             "city": {
                 "type": "string",
@@ -121,5 +126,23 @@ ITEM_SCHEMA = {
                 "description": "Direct URL to the item on Wallapop"
             }
         }
+    }
+}
+
+LOCATE_SCHEMA = {
+    "name": "wallapop_locate",
+    "description": (
+        "Resolve a Spanish city, municipality, neighborhood, or postal code into precise coordinates "
+        "and province metadata. Useful to verify location resolution before searching."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "location": {
+                "type": "string",
+                "description": "Location name, municipality, neighborhood, or 5-digit Spanish postal code (e.g. 'Getafe', '28013', 'Triana')"
+            }
+        },
+        "required": ["location"]
     }
 }

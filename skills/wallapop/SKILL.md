@@ -2,7 +2,7 @@
 name: Wallapop Plugin
 id: wallapop
 description: "Search Wallapop - Spanish second-hand marketplace"
-version: 0.1.0
+version: 0.2.0
 author: Hermes Agent
 license: MIT
 ---
@@ -19,21 +19,16 @@ Search Wallapop for items with various filters.
 
 **Parameters:**
 - `query` (string, required): Search query
-- `location` (string, optional): Location name or city
-- `latitude` (number, optional): Latitude for coordinate search
-- `longitude` (number, optional): Longitude for coordinate search
-- `city` (string, optional): City name for localStorage location setup - used when latitude/longitude provided for proper location-based search
-- `province` (string, optional): Province name for localStorage location setup
-- `community` (string, default: "España"): Autonomous community name for localStorage setup
+- `location` (string, recommended for location): City, municipality, neighborhood, or 5-digit postal code (e.g. "Getafe", "28013", "Barrio de Gràcia, Barcelona", "Sevilla"). The plugin resolves exact coordinates automatically. **Do not estimate or guess GPS coordinates.**
 - `radius_km` (integer, default: 20): Search radius in km
-- `min_price` (integer, optional): Minimum price in euros (uses `min_sale_price` in Wallapop API)
-- `max_price` (integer, optional): Maximum price in euros (uses `max_sale_price` in Wallapop API)
-- `state` (string, optional): Legacy parameter - use `condition` instead
-- `condition` (string|list, optional): State filter - supports single value or array of "nuevo" (new), "como nuevo" (same as as_good_as_new), "good", "fair", "has_given_it_all". Multiple values can be passed as array or comma-separated string.
+- `latitude` / `longitude` (number, optional override): Only pass if the human user explicitly provided exact numerical GPS coordinates.
+- `min_price` (integer, optional): Minimum price in euros
+- `max_price` (integer, optional): Maximum price in euros
+- `condition` (string|list, optional): "nuevo", "como nuevo", "good", "fair", "has_given_it_all"
 - `shipping_available` (boolean, optional): Filter for items with shipping
 - `free_shipping` (boolean, optional): Filter for items with free shipping only
 - `category` (string, optional): Item category
-- `sort` (string, default: "relevancia"): Sort order - "relevancia", "price_low_to_high", "price_high_to_low", "mas_recientes", "mas_cercanos"
+- `sort` (string, default: "relevancia"): "relevancia", "price_low_to_high", "price_high_to_low", "mas_recientes", "mas_cercanos"
 - `page` (integer, default: 1): Page number
 - `items_per_page` (integer, default: 20, max: 50): Results per page
 
@@ -49,6 +44,15 @@ Get detailed information about a specific item.
 
 **Returns:** JSON with full item details including description, images, seller info, etc.
 
+### `wallapop_locate`
+
+Resolve a place name, town, neighborhood, or 5-digit Spanish postal code into exact coordinates.
+
+**Parameters:**
+- `location` (string, required): Place name or postal code (e.g. "28013", "Móstoles", "Triana, Sevilla")
+
+**Returns:** JSON with resolved latitude, longitude, municipality, province, and label.
+
 ## Usage Examples
 
 ### Basic search:
@@ -56,14 +60,19 @@ Get detailed information about a specific item.
 wallapop_search({"query": "product name"})
 ```
 
-### Search in a specific city with price filter:
+### Search in a specific town or city (recommended):
 ```
-wallapop_search({"query": "item", "location": "CityName", "min_price": 50, "max_price": 500})
+wallapop_search({"query": "item", "location": "Getafe", "min_price": 50, "max_price": 500})
 ```
 
-### Coordinate-based search (recommended for precise location):
+### Search by postal code:
 ```
-wallapop_search({"query": "item", "latitude": X.XXXX, "longitude": Y.YYYY, "radius_km": 10})
+wallapop_search({"query": "item", "location": "28013", "radius_km": 15})
+```
+
+### Resolve location coordinates:
+```
+wallapop_locate({"location": "Alcorcón"})
 ```
 
 ### Search with category filter:

@@ -1,6 +1,6 @@
 name: wallapop
 id: wallapop
-version: 0.1.0
+version: 0.2.0
 description: "Search Wallapop - Spanish second-hand marketplace"
 author: Gorkaseto
 license: MIT
@@ -15,6 +15,7 @@ tags:
 provides_tools:
   - wallapop_search
   - wallapop_get_item
+  - wallapop_locate
 
 # Python dependencies. Hermes installs these before enabling the plugin.
 python_dependencies:

@@ -120,23 +120,87 @@ class TestBuildSearchURL:
 class TestCoordinatesAndMapping:
     """Tests for coordinate resolution and normalization."""
 
-    def test_spanish_city_coords(self):
-        from wallapop.api_client import resolve_coordinates
-        lat, lng = resolve_coordinates(location="Madrid")
-        assert lat == pytest.approx(40.4168, rel=1e-3)
-        assert lng == pytest.approx(-3.7038, rel=1e-3)
-
     def test_direct_coords_precedence(self):
-        from wallapop.api_client import resolve_coordinates
-        lat, lng = resolve_coordinates(location="Madrid", latitude=41.5, longitude=2.0)
-        assert lat == 41.5
-        assert lng == 2.0
+        from wallapop.location import resolve_location
+        res = resolve_location(location="Madrid", latitude=41.5, longitude=2.0)
+        assert res["latitude"] == 41.5
+        assert res["longitude"] == 2.0
+        assert res["source"] == "coordinates_override"
+
+    @patch("wallapop.location.geocode_photon")
+    def test_invalid_llm_coords_rejection(self, mock_photon):
+        from wallapop.location import resolve_location
+        mock_photon.return_value = {
+            "latitude": 41.6488,
+            "longitude": -0.8891,
+            "city": "Zaragoza",
+            "province": "Aragón",
+            "community": "España",
+            "postal_code": "50001",
+            "label": "Zaragoza, Aragón, ESP",
+            "source": "photon",
+        }
+        # 10.0, 50.0 is not in Spain; should reject and call geocoder
+        res = resolve_location(location="Zaragoza", latitude=10.0, longitude=50.0)
+        assert res["latitude"] == pytest.approx(41.6488, rel=1e-3)
+        assert res["source"] == "photon"
+
+    @patch("wallapop.location.geocode_photon")
+    def test_dynamic_geocoding_resolution(self, mock_photon):
+        from wallapop.location import resolve_location
+        mock_photon.return_value = {
+            "latitude": 40.3071,
+            "longitude": -3.7332,
+            "city": "Getafe",
+            "province": "Comunidad de Madrid",
+            "community": "España",
+            "postal_code": "28901",
+            "label": "Getafe, Comunidad de Madrid, ESP",
+            "source": "photon",
+        }
+        res = resolve_location("Getafe")
+        assert res["latitude"] == pytest.approx(40.3071, rel=1e-3)
+        assert res["city"] == "Getafe"
+        assert res["source"] == "photon"
+
+    def test_empty_location_national_default(self):
+        from wallapop.location import resolve_location
+        res = resolve_location()
+        assert res["city"] == "Madrid"
+        assert res["source"] == "default_national"
 
     def test_condition_normalization(self):
         from wallapop.api_client import _normalize_condition
         assert _normalize_condition("nuevo") == "new"
         assert _normalize_condition(["como nuevo", "good"]) == "as_good_as_new,good"
         assert _normalize_condition("lo ha dado todo") == "has_given_it_all"
+
+
+class TestLocateLocationTool:
+    """Tests for the wallapop_locate tool."""
+
+    def test_locate_requires_location(self):
+        from wallapop.tools import locate_location
+        data = json.loads(locate_location({}))
+        assert "error" in data
+
+    @patch("wallapop.location.geocode_photon")
+    def test_locate_valid_place(self, mock_photon):
+        from wallapop.tools import locate_location
+        mock_photon.return_value = {
+            "latitude": 40.3458,
+            "longitude": -3.8249,
+            "city": "Alcorcón",
+            "province": "Madrid",
+            "community": "España",
+            "postal_code": "28921",
+            "label": "Alcorcón, Madrid, ESP",
+            "source": "photon",
+        }
+        data = json.loads(locate_location({"location": "Alcorcón"}))
+        assert "latitude" in data
+        assert "longitude" in data
+        assert data["city"] == "Alcorcón"
 
 
 class TestPluginRegistration:
@@ -148,10 +212,11 @@ class TestPluginRegistration:
 
         wallapop.register(mock_ctx)
 
-        assert mock_ctx.register_tool.call_count == 2
+        assert mock_ctx.register_tool.call_count == 3
         tool_names = [call.kwargs.get("name") for call in mock_ctx.register_tool.call_args_list]
         assert "wallapop_search" in tool_names
         assert "wallapop_get_item" in tool_names
+        assert "wallapop_locate" in tool_names
 
         # Verify skill registration
         assert mock_ctx.register_skill.call_count >= 1
