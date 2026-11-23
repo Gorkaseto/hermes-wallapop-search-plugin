@@ -1,10 +1,7 @@
 ---
-name: Wallapop Plugin
-id: wallapop
-description: "Search Wallapop - Spanish second-hand marketplace"
+name: wallapop
+description: "Search Wallapop - Spanish second-hand marketplace for products, prices, and item details"
 version: 1.0.0
-author: Hermes Agent
-license: MIT
 ---
 
 # Wallapop Plugin for Hermes Agent

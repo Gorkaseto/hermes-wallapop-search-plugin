@@ -83,23 +83,12 @@ Returns a JSON string with title, price, description, images, seller, location, 
 | mascotas | Pets | salud | Health |
 | herramientas | Tools | artesania | Crafts |
 
-## Limitations
+## Execution & Features
 
-- **Location filters need authentication.** Wallapop returns national (unfiltered)
-  results when you pass `location` / `latitude` / `longitude` without a signed-in
-  browser session; coordinate searches work best with the Playwright path below.
-  Workaround: search without a location filter and review item locations, or use
-  keyword searches to narrow results.
-- **JavaScript rendering.** Wallapop renders search results dynamically. The plain
-  HTTP scraper may miss items. For full results install Playwright:
-
-  ```bash
-  pip install playwright
-  playwright install chromium
-  ```
-
-- **Rate limits / blocking.** Wallapop may block automated requests. Use
-  responsibly and respect robots.txt.
+- **Out-of-the-box functionality:** Uses Wallapop's internal API and HTML parser via `requests`, requiring only the dependencies declared in `plugin.yaml`. No external browser binaries required.
+- **Smart Location Handling:** Supports coordinate search (`latitude`/`longitude`) as well as named cities (e.g., `Madrid`, `Barcelona`, `Sevilla`, `Valencia`, etc.) with built-in coordinates resolution.
+- **Optional Playwright Rendering:** For environments where full JavaScript execution is desired, Playwright is supported as an optional fallback when installed (`pip install playwright && playwright install chromium`).
+- **Rate limits / blocking:** Wallapop may rate-limit automated requests. Use responsibly and respect terms of service.
 
 ## Project layout
 

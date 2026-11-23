@@ -32,10 +32,11 @@ def register(ctx):
 
     # Bundle skills shipped in skills/<name>/SKILL.md
     skills_dir = Path(__file__).parent / "skills"
-    for child in sorted(skills_dir.iterdir()):
-        skill_md = child / "SKILL.md"
-        if child.is_dir() and skill_md.exists():
-            ctx.register_skill(child.name, skill_md)
+    if skills_dir.exists():
+        for child in sorted(skills_dir.iterdir()):
+            skill_md = child / "SKILL.md"
+            if child.is_dir() and skill_md.exists():
+                ctx.register_skill(child.name, skill_md)
 
     logger.info(f"Registered {PLUGIN_NAME} v{PLUGIN_VERSION}")
 
