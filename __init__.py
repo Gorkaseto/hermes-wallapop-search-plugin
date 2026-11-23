@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 # Plugin metadata
 PLUGIN_ID = "wallapop"
 PLUGIN_NAME = "Wallapop Search Plugin"
-PLUGIN_VERSION = "1.0.0"
+PLUGIN_VERSION = "0.2.2"
 
 
 def _background_prepare_playwright():
