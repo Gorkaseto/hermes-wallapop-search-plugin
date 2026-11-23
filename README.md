@@ -1,162 +1,112 @@
 # Wallapop Plugin for Hermes Agent
 
-A Python plugin that enables searching the Spanish second-hand marketplace [Wallapop](https://wallapop.com) directly from Hermes Agent.
+A Hermes Agent plugin that searches the Spanish second-hand marketplace
+[Wallapop](https://es.wallapop.com) — list items with filters and read a single
+item's details.
 
-## ⚠️ Important Limitations About Location Filters
+## Install from GitHub
 
-Wallapop **does not allow geographic filtering without authentication**. When you use:
-- `location` parameter (e.g., "Madrid", "Barcelona")
-- `latitude`/`longitude` parameters
-
-The search returns **national results** without geographic filtering. This is a limitation imposed by Wallapop's API.
-
-**Workarounds:**
-- Search without location filters and manually review item locations
-- Use keyword searches to narrow results (e.g., brand names, specific items)
-
-## ⚠️ Critical Note About JavaScript
-
-Wallapop's website renders search results **dynamically with JavaScript**. The basic HTTP scraper used by this plugin may not find all items. For full results, you have two options:
-
-### Option 1: Install Playwright (Recommended)
+Plugins are opt-in, so you install and then enable:
 
 ```bash
-pip install playwright beautifulsoup4 lxml requests
-playwright install chromium
-playwright install-deps chromium  # Linux system dependencies
+hermes plugins install Gorkaseto/hermes-wallapop-search-plugin
+hermes plugins enable wallapop
 ```
 
-### Option 2: Use Hermes' browser_exec Tool
+`hermes plugins install` clones the repo into `~/.hermes/plugins/wallapop/`,
+reads `plugin.yaml`, and installs declared Python dependencies (`playwright`).
+If Chromium is not installed yet, the plugin automatically installs it on its
+first run via `playwright install chromium`. `hermes plugins enable wallapop` turns
+it on (add `wallapop` under `plugins.enabled` in `~/.hermes/config.yaml`).
 
-If you have the `browser_exec` tool available in Hermes, it provides a full browser environment with JavaScript support.
-
-## Installation
-
-### From Hermes Agent
-
-The plugin will automatically install its dependencies (`beautifulsoup4`, `lxml`, `requests`, `playwright`) when loaded.
-
-### Manual Installation
+Check it loaded:
 
 ```bash
-pip install beautifulsoup4 lxml requests playwright
-```
-
-For playwright browsers:
-```bash
-playwright install chromium
+hermes plugins list          # shows "wallapop v1.0.0 (2 tools)"
+hermes plugins doctor wallapop
 ```
 
 ## Usage
-
-### With Hermes Agent
 
 ```python
 # Basic search
 wallapop_search({"query": "product name"})
 
-# Search with location
-wallapop_search({"query": "item", "location": "Madrid"})
+# Search in a city with a price range
+wallapop_search({"query": "item", "location": "Madrid", "min_price": 50, "max_price": 500})
 
 # Coordinate-based search (recommended for precise location)
-wallapop_search({"query": "item", "latitude": X.XXXX, "longitude": Y.YYYY, "radius_km": 10})
+wallapop_search({"query": "item", "latitude": 40.4168, "longitude": -3.7038, "radius_km": 10})
 
-# Search with category
-wallapop_search({"query": "item", "category": "moda"})
+# Search a category, new items with free shipping
+wallapop_search({"query": "item", "category": "moda", "condition": "nuevo", "free_shipping": true})
 
 # Get item details
 wallapop_get_item({"item_id": "12345"})
 ```
 
-### Available Categories
-
-| Category | Description | ID |
-|----------|-------------|-----|
-| movilidad | Vehicles | 1 |
-| telefonia | Phones | 1-1 |
-| ordenadores | Computers | 4 |
-| hogar | Home | 8 |
-| electrodomesticos | Appliances | 8 |
-| moda | Fashion | 14 |
-| deporte | Sports | 16 |
-| juguetes | Toys | 18 |
-| libros | Books | 20 |
-| musica | Music | 21 |
-| videojuegos | Video games | 22 |
-| belleza | Beauty | 25 |
-| mascotas | Pets | 26 |
-| salud | Health | 27 |
-| herramientas | Tools | 28 |
-| artesania | Crafts | 33 |
-| coches | Cars | 2 |
-| motos | Motorcycles | 3 |
-
-### Sort Options
-
-- `relevancia` - By relevance (default)
-- `price_low_to_high` - Price ascending
-- `price_high_to_low` - Price descending
-- `newest_first` - Newest first
-- `closest` - Closest to location
-
-### Condition Filters
-
-- `nuevo` / `as_good_as_new` - New
-- `good` - Good condition
-- `fair` - Fair condition
-- `has_given_it_all` - Reparable
-
-## API Reference
-
 ### `wallapop_search(args)`
 
-Search Wallapop for items.
+Search Wallapop. Returns a JSON string with an `items` array.
 
 **Parameters:**
 - `query` (str, required): Search query
-- `location` (str, optional): City or location name
-- `latitude` (float, optional): Latitude for coordinate search
-- `longitude` (float, optional): Longitude for coordinate search
-- `city` (str, optional): City name for location setup
-- `province` (str, optional): Province name for location setup
-- `community` (str, default: "España"): Autonomous community
-- `radius_km` (int, default: 20): Search radius in km
-- `min_price` (int, optional): Minimum price
-- `max_price` (int, optional): Maximum price
-- `condition` (str|list, optional): Item condition filter
-- `shipping_available` (bool, optional): Filter for shipping
-- `free_shipping` (bool, optional): Filter for free shipping only
-- `category` (str, optional): Item category
-- `sort` (str, default: "relevancia"): Sort order
-- `page` (int, default: 1): Page number
-- `items_per_page` (int, default: 20, max: 50): Results per page
-
-**Returns:** JSON string with search results
+- `location` (str): City or location name
+- `latitude` / `longitude` (float): Coordinates for a location-based search
+- `city` / `province` / `community` (str): Names for the localStorage location setup (default community: `España`)
+- `radius_km` (int, default 20): Search radius in km
+- `min_price` / `max_price` (int): Price range
+- `condition` (str | list): `nuevo`, `como nuevo`, `good`, `fair`, `has_given_it_all` (a value, comma-separated string, or a list)
+- `state` (str): Legacy condition — use `condition`
+- `shipping_available` / `free_shipping` (bool): Shipping filters
+- `category` (str): Category name (see table below)
+- `sort` (str, default `relevancia`): `relevancia`, `price_low_to_high`, `price_high_to_low`, `mas_recientes`, `mas_cercanos`
+- `page` (int, default 1), `items_per_page` (int, default 20, max 50)
 
 ### `wallapop_get_item(args)`
 
-Get detailed information about a specific item.
+- `item_id` (str) — the id from a search result
+- `url` (str) — a direct item URL (use one of the two)
 
-**Parameters:**
-- `item_id` (str, optional): Item ID from search result
-- `url` (str, optional): Direct URL to the item
+Returns a JSON string with title, price, description, images, seller, location, shipping, status.
 
-**Returns:** JSON string with item details
+### Available categories
 
-## Project Structure
+| Category | Description | Category | Description |
+|----------|-------------|----------|-------------|
+| movilidad | Vehicles | ordenadores | Computers |
+| telefonia | Phones | hogar | Home |
+| coches | Cars | electrodomesticos | Appliances |
+| motos | Motorcycles | moda | Fashion |
+| deporte | Sports | juguetes | Toys |
+| libros | Books | musica | Music |
+| videojuegos | Video games | belleza | Beauty |
+| mascotas | Pets | salud | Health |
+| herramientas | Tools | artesania | Crafts |
+
+## Execution & Features
+
+- **Dedicated Playwright Pipeline:** Playwright is the single, dedicated execution engine. It bypasses CloudFront WAF bot protections and renders client-side Next.js SPA content, capturing rich structured data from Wallapop's internal `api/v3/search/section` endpoints.
+- **Auto-Installation of Chromium:** The plugin automatically verifies if the Playwright package and the Chromium browser binary exist; if missing, it runs the installation automatically.
+- **Smart Location Handling:** Supports coordinate search (`latitude`/`longitude`) as well as named cities (e.g., `Madrid`, `Barcelona`, `Sevilla`, `Valencia`, etc.) with built-in coordinates resolution and localStorage setup.
+- **Rate limits / blocking:** Wallapop may rate-limit automated requests. Use responsibly and respect terms of service.
+
+## Project layout
+
+The repo root is the native Hermes plugin directory:
 
 ```
-wallapop-plugin/
-├── wallapop_plugin/
-│   ├── __init__.py
-│   ├── tools.py
-│   └── api_client.py
-├── tests/
-│   └── test_tools.py
-├── examples/
-│   └── sample_usage.py
+hermes-wallapop-search-plugin/
+├── plugin.yaml           # manifest: name, version, provides_tools, python_dependencies
+├── __init__.py           # register(ctx): wires schemas -> handlers, registers skills
+├── schemas.py            # tool schemas the LLM reads (name, description, parameters)
+├── tools.py              # tool handlers (search_wallapop, get_item_details)
+├── api_client.py         # Playwright fetch + Wallapop URL building / parsing
+├── skills/wallapop/
+│   └── SKILL.md          # bundled skill registered by register(ctx)
+├── tests/test_tools.py
+├── examples/sample_usage.py
 ├── README.md
-├── plugin.yaml
 ├── requirements.txt
 ├── pyproject.toml
 └── LICENSE
@@ -164,65 +114,20 @@ wallapop-plugin/
 
 ## Development
 
-### Setup Development Environment
-
 ```bash
-# Clone the repository
-git clone https://github.com/hermes-agent/wallapop-plugin.git
-cd wallapop-plugin
+git clone https://github.com/Gorkaseto/hermes-wallapop-search-plugin.git
+cd hermes-wallapop-search-plugin
+pip install -e ".[dev]"          # installs the modules as package `wallapop` + test tools
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -e ".[dev]"
-
-# Install playwright browsers
-playwright install chromium
+# Run tests from inside tests/ (that dir is the pytest rootdir; see tests/pytest.ini):
+cd tests
+pytest
 ```
 
-### Running Tests
-
-```bash
-pytest tests/
-```
-
-### Code Formatting
-
-```bash
-black .
-isort .
-flake8 .
-```
-
-## Requirements
-
-- Python 3.8+
-- beautifulsoup4
-- lxml
-- requests
-- playwright (optional, for JavaScript-rendered content)
-
-## Limitations
-
-- Wallapop may block automated requests. Use responsibly and respect robots.txt
-- JavaScript-rendered content requires Playwright
-- Location searches work best with coordinates rather than city names
+The `pip install -e .` path installs the modules as an importable package
+named `wallapop` (for tests/dev); the `hermes plugins install` path loads the
+directory natively.
 
 ## License
 
-MIT License
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests
-5. Submit a pull request
-
-## Acknowledgments
-
-- Wallapop API is not officially documented - this plugin scrapes the web interface
-- Coordinates for Spanish cities obtained from OpenStreetMap/Nominatim
+MIT License — see [LICENSE](LICENSE).
