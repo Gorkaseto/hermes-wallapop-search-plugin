@@ -231,3 +231,27 @@ class TestPlaywrightPipeline:
         from wallapop.api_client import ensure_playwright_installed
         # In current environment playwright is installed and works
         assert ensure_playwright_installed() is True
+
+    def test_find_and_register_hermes_site_packages(self):
+        from wallapop.api_client import _find_and_register_hermes_site_packages
+        # Should execute cleanly without error
+        assert isinstance(_find_and_register_hermes_site_packages(), bool)
+
+    def test_get_playwright_python_executable(self):
+        from wallapop.api_client import get_playwright_python_executable
+        py = get_playwright_python_executable()
+        assert py is not None
+        assert isinstance(py, str)
+
+    @patch("wallapop.api_client.get_playwright_python_executable")
+    @patch("subprocess.run")
+    def test_run_search_via_subprocess(self, mock_run, mock_get_py):
+        from wallapop.api_client import _run_search_via_subprocess
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.stdout = json.dumps({"items": [{"id": "999", "title": "Subproc Item"}], "total": 1})
+        mock_run.return_value = mock_proc
+
+        res = _run_search_via_subprocess("python", {"query": "test"})
+        assert "items" in res
+        assert res["items"][0]["title"] == "Subproc Item"

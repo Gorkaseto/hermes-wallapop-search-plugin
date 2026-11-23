@@ -17,7 +17,10 @@ from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 
-from .location import resolve_location, is_valid_spain_coords
+try:
+    from .location import resolve_location, is_valid_spain_coords
+except (ImportError, ValueError):
+    from location import resolve_location, is_valid_spain_coords
 
 # Backward-compatible wrapper
 def resolve_coordinates(
@@ -115,6 +118,99 @@ ORDER_MAP: Dict[str, str] = {
 }
 
 
+def _find_and_register_hermes_site_packages() -> bool:
+    """Discover site-packages from Hermes tools/environments and add to sys.path if playwright is there."""
+    import glob
+    import os
+    import sys
+
+    try:
+        import playwright
+        return True
+    except ImportError:
+        pass
+
+    search_patterns = [
+        os.path.expanduser("~/.hermes/tools/**/site-packages"),
+        os.path.expanduser("~/.hermes/installs/**/site-packages"),
+        os.path.expanduser("~/.hermes/environments/**/site-packages"),
+        os.path.expanduser("~/.hermes/**/lib/python*/site-packages"),
+        os.path.expanduser("~/.hermes/**/site-packages"),
+    ]
+    for pat in search_patterns:
+        try:
+            for sp in glob.glob(pat, recursive=True):
+                if os.path.isdir(sp) and sp not in sys.path:
+                    pw_dir = os.path.join(sp, "playwright")
+                    if os.path.isdir(pw_dir):
+                        logger.info(f"Discovered Playwright site-packages in Hermes: {sp}")
+                        sys.path.insert(0, sp)
+                        try:
+                            import playwright
+                            return True
+                        except Exception as e:
+                            logger.debug(f"Found playwright in {sp} but import failed: {e}")
+        except Exception:
+            pass
+    return False
+
+
+def get_playwright_python_executable() -> Optional[str]:
+    """Find a Python interpreter that has Playwright installed and working."""
+    import glob
+    import os
+    import shutil
+    import subprocess
+    import sys
+
+    # 1. Check if current interpreter has it
+    try:
+        import playwright
+        return sys.executable
+    except ImportError:
+        if _find_and_register_hermes_site_packages():
+            return sys.executable
+
+    # 2. Search for external Python executables in Hermes directories
+    candidates: List[str] = []
+    hermes_patterns = [
+        os.path.expanduser("~/.hermes/tools/**/bin/python*"),
+        os.path.expanduser("~/.hermes/tools/**/python*"),
+        os.path.expanduser("~/.hermes/installs/**/bin/python*"),
+        os.path.expanduser("~/.hermes/installs/**/python*"),
+    ]
+    for pat in hermes_patterns:
+        try:
+            for p in glob.glob(pat, recursive=True):
+                if os.path.isfile(p) and (os.access(p, os.X_OK) or p.endswith(".exe")):
+                    real = os.path.realpath(p)
+                    if real not in candidates and not real.endswith("-config"):
+                        candidates.append(real)
+        except Exception:
+            pass
+
+    for name in ["python3", "python"]:
+        found = shutil.which(name)
+        if found and found not in candidates:
+            candidates.append(found)
+
+    for cand in candidates:
+        try:
+            res = subprocess.run(
+                [cand, "-c", "import playwright; print('PLAYWRIGHT_OK')"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if "PLAYWRIGHT_OK" in res.stdout:
+                logger.info(f"Found working Playwright in Python interpreter: {cand}")
+                return cand
+        except Exception:
+            continue
+
+    return None
+
+
 def is_chromium_installed() -> bool:
     """Check if Chromium browser binary is present in ms-playwright directory."""
     import glob
@@ -139,31 +235,151 @@ def is_chromium_installed() -> bool:
 
 def ensure_playwright_installed() -> bool:
     """Ensure that the playwright package and chromium browser binaries are installed."""
-    # 1. Check if playwright python package is installed
+    import shutil
+    import subprocess
+    import sys
+
+    # 1. Discover existing site-packages if playwright is already installed in Hermes
+    _find_and_register_hermes_site_packages()
+
+    # 2. Check if playwright python package is installed in current interpreter or Hermes interpreter
+    py_exec = get_playwright_python_executable() or sys.executable
+
+    has_pkg = False
     try:
         import playwright
+        has_pkg = True
     except ImportError:
-        logger.info("Playwright python package not found. Installing playwright...")
-        try:
-            subprocess.check_call(
-                [sys.executable, "-m", "pip", "install", "playwright>=1.40,<2"]
-            )
-        except Exception as e:
-            logger.error(f"Failed to install playwright package: {e}")
-            return False
+        pass
 
-    # 2. Check if chromium binary is installed
+    if not has_pkg:
+        try:
+            res = subprocess.run(
+                [py_exec, "-c", "import playwright; print('OK')"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if "OK" in res.stdout:
+                has_pkg = True
+        except Exception:
+            pass
+
+    if not has_pkg:
+        logger.info(f"Playwright python package not found. Installing via {py_exec}...")
+        installed = False
+        uv_bin = shutil.which("uv")
+        if uv_bin:
+            try:
+                subprocess.check_call([uv_bin, "pip", "install", "--python", py_exec, "playwright>=1.40,<2"])
+                installed = True
+            except Exception:
+                pass
+
+        if not installed:
+            try:
+                subprocess.check_call(
+                    [py_exec, "-m", "pip", "install", "--break-system-packages", "playwright>=1.40,<2"]
+                )
+                installed = True
+            except Exception:
+                try:
+                    subprocess.check_call(
+                        [py_exec, "-m", "pip", "install", "playwright>=1.40,<2"]
+                    )
+                    installed = True
+                except Exception as e:
+                    logger.error(f"Failed to install playwright package: {e}")
+                    return False
+
+        _find_and_register_hermes_site_packages()
+
+    # 3. Check if chromium binary is installed
     if not is_chromium_installed():
         logger.info("Chromium binary not found. Running 'playwright install chromium'...")
+        target_py = get_playwright_python_executable() or py_exec
         try:
             subprocess.check_call(
-                [sys.executable, "-m", "playwright", "install", "chromium"]
+                [target_py, "-m", "playwright", "install", "chromium"]
             )
-        except Exception as e:
-            logger.error(f"Failed to install chromium binary: {e}")
-            return False
+        except Exception:
+            pw_cmd = shutil.which("playwright")
+            if pw_cmd:
+                try:
+                    subprocess.check_call([pw_cmd, "install", "chromium"])
+                except Exception as e:
+                    logger.error(f"Failed to install chromium binary: {e}")
+                    return False
+            else:
+                return False
 
     return True
+
+
+def _run_search_via_subprocess(target_py: str, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """Execute search_wallapop_api via another Python interpreter that has Playwright."""
+    import os
+    import subprocess
+
+    this_file = os.path.abspath(__file__)
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.path.dirname(this_file) + os.pathsep + env.get("PYTHONPATH", "")
+
+    try:
+        res = subprocess.run(
+            [target_py, this_file, "search", json.dumps(kwargs)],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=40,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            lines = res.stdout.strip().split("\n")
+            for line in reversed(lines):
+                line = line.strip()
+                if line.startswith("{") and line.endswith("}"):
+                    return json.loads(line)
+            return json.loads(res.stdout)
+        else:
+            err = res.stderr or res.stdout or f"Process exited with code {res.returncode}"
+            logger.error(f"External Playwright process failed: {err}")
+            return {"error": f"External Playwright search failed: {err}", "items": [], "total": 0}
+    except Exception as e:
+        logger.error(f"Failed to execute external Playwright search: {e}")
+        return {"error": str(e), "items": [], "total": 0}
+
+
+def _run_item_via_subprocess(target_py: str, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """Execute get_item_details_api via another Python interpreter that has Playwright."""
+    import os
+    import subprocess
+
+    this_file = os.path.abspath(__file__)
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.path.dirname(this_file) + os.pathsep + env.get("PYTHONPATH", "")
+
+    try:
+        res = subprocess.run(
+            [target_py, this_file, "item", json.dumps(kwargs)],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=40,
+        )
+        if res.returncode == 0 and res.stdout.strip():
+            lines = res.stdout.strip().split("\n")
+            for line in reversed(lines):
+                line = line.strip()
+                if line.startswith("{") and line.endswith("}"):
+                    return json.loads(line)
+            return json.loads(res.stdout)
+        else:
+            err = res.stderr or res.stdout or f"Process exited with code {res.returncode}"
+            logger.error(f"External Playwright process failed: {err}")
+            return {"error": f"External Playwright get_item failed: {err}"}
+    except Exception as e:
+        logger.error(f"Failed to execute external Playwright get_item: {e}")
+        return {"error": str(e)}
 
 
 def _normalize_condition(condition: Any, state: Optional[str] = None) -> Optional[str]:
@@ -367,7 +583,39 @@ def search_wallapop_api(
             "total": 0,
         }
 
-    from playwright.sync_api import sync_playwright
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        target_py = get_playwright_python_executable()
+        import os
+        if target_py and os.path.realpath(target_py) != os.path.realpath(sys.executable):
+            logger.info(f"Delegating Wallapop search to Python interpreter: {target_py}")
+            return _run_search_via_subprocess(target_py, {
+                "query": query,
+                "location": location,
+                "items_per_page": items_per_page,
+                "latitude": latitude,
+                "longitude": longitude,
+                "city": city,
+                "province": province,
+                "community": community,
+                "radius_km": radius_km,
+                "min_price": min_price,
+                "max_price": max_price,
+                "state": state,
+                "shipping_available": shipping_available,
+                "free_shipping": free_shipping,
+                "category": category,
+                "sort": sort,
+                "page": page,
+                "time_filter": time_filter,
+                "condition": condition,
+            })
+        return {
+            "error": "Playwright module could not be imported in Python environment",
+            "items": [],
+            "total": 0,
+        }
 
     # Resolve reliable coordinates and metadata
     loc_info = resolve_location(
@@ -549,7 +797,18 @@ def get_item_details_api(item_id: Optional[str] = None, url: Optional[str] = Non
     if not ensure_playwright_installed():
         return {"error": "Playwright/Chromium could not be initialized or installed"}
 
-    from playwright.sync_api import sync_playwright
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        target_py = get_playwright_python_executable()
+        import os
+        if target_py and os.path.realpath(target_py) != os.path.realpath(sys.executable):
+            logger.info(f"Delegating Wallapop get_item to Python interpreter: {target_py}")
+            return _run_item_via_subprocess(target_py, {
+                "item_id": item_id,
+                "url": url,
+            })
+        return {"error": "Playwright module could not be imported in Python environment"}
 
     clean_id = str(item_id).strip() if item_id else ""
     if not clean_id and url:
@@ -636,3 +895,17 @@ def requests_quote_params(params: Dict[str, Any]) -> str:
         if v is not None:
             parts.append(f"{quote(str(k))}={quote(str(v))}")
     return "&".join(parts)
+
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) >= 3:
+        mode = sys.argv[1]
+        args_payload = json.loads(sys.argv[2])
+        if mode == "search":
+            result = search_wallapop_api(**args_payload)
+        elif mode == "item":
+            result = get_item_details_api(**args_payload)
+        else:
+            result = {"error": f"Unknown mode: {mode}"}
+        print(json.dumps(result, ensure_ascii=False))

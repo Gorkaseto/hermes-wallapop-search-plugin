@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+import threading
 
 from . import schemas, tools
 
@@ -11,6 +12,17 @@ logger = logging.getLogger(__name__)
 PLUGIN_ID = "wallapop"
 PLUGIN_NAME = "Wallapop Search Plugin"
 PLUGIN_VERSION = "1.0.0"
+
+
+def _background_prepare_playwright():
+    """Silently ensure Playwright browser binaries are ready in the background upon activation."""
+    try:
+        from .api_client import ensure_playwright_installed, is_chromium_installed
+        if not is_chromium_installed():
+            logger.info("Wallapop plugin: Chromium binary missing. Starting background download...")
+            ensure_playwright_installed()
+    except Exception as e:
+        logger.debug(f"Background Playwright setup check: {e}")
 
 
 def register(ctx):
@@ -44,6 +56,9 @@ def register(ctx):
             skill_md = child / "SKILL.md"
             if child.is_dir() and skill_md.exists():
                 ctx.register_skill(child.name, skill_md)
+
+    # Trigger background check/download of browser binaries so it's ready before first tool call
+    threading.Thread(target=_background_prepare_playwright, daemon=True).start()
 
     logger.info(f"Registered {PLUGIN_NAME} v{PLUGIN_VERSION}")
 
