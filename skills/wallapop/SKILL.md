@@ -2,7 +2,7 @@
 name: Wallapop Plugin
 id: wallapop
 description: "Search Wallapop - Spanish second-hand marketplace"
-version: 0.2.1
+version: 0.2.2
 author: Hermes Agent
 license: MIT
 ---
