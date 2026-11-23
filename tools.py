@@ -8,8 +8,7 @@ Provides the tool handlers:
 import json
 import logging
 from typing import Any, Dict, List, Optional
-import requests
-from bs4 import BeautifulSoup
+from urllib.parse import quote
 
 from . import api_client
 
@@ -34,14 +33,14 @@ def _build_search_url(
 ) -> str:
     """Build Wallapop search URL with query parameters."""
     base_url = "https://es.wallapop.com/search"
-    params = [f"query={requests.utils.quote(query)}"]
+    params = [f"query={quote(query)}"]
 
     if latitude is not None and longitude is not None:
         params.append(f"latitude={latitude}")
         params.append(f"longitude={longitude}")
         params.append(f"radius={radius_km}")
     elif location:
-        params.append(f"location_name={requests.utils.quote(location)}")
+        params.append(f"location_name={quote(location)}")
 
     if min_price is not None:
         params.append(f"min_price={min_price}")

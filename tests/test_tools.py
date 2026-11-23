@@ -157,3 +157,12 @@ class TestPluginRegistration:
         assert mock_ctx.register_skill.call_count >= 1
         skill_names = [call.args[0] for call in mock_ctx.register_skill.call_args_list]
         assert "wallapop" in skill_names
+
+
+class TestPlaywrightPipeline:
+    """Tests for the Playwright-only pipeline configuration."""
+
+    def test_ensure_playwright_installed_when_present(self):
+        from wallapop.api_client import ensure_playwright_installed
+        # In current environment playwright is installed and works
+        assert ensure_playwright_installed() is True

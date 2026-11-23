@@ -14,8 +14,9 @@ hermes plugins enable wallapop
 ```
 
 `hermes plugins install` clones the repo into `~/.hermes/plugins/wallapop/`,
-reads `plugin.yaml`, and installs the declared Python dependencies
-(`requests`, `beautifulsoup4`, `lxml`). `hermes plugins enable wallapop` turns
+reads `plugin.yaml`, and installs declared Python dependencies (`playwright`).
+If Chromium is not installed yet, the plugin automatically installs it on its
+first run via `playwright install chromium`. `hermes plugins enable wallapop` turns
 it on (add `wallapop` under `plugins.enabled` in `~/.hermes/config.yaml`).
 
 Check it loaded:
@@ -85,9 +86,9 @@ Returns a JSON string with title, price, description, images, seller, location, 
 
 ## Execution & Features
 
-- **Out-of-the-box functionality:** Uses Wallapop's internal API and HTML parser via `requests`, requiring only the dependencies declared in `plugin.yaml`. No external browser binaries required.
-- **Smart Location Handling:** Supports coordinate search (`latitude`/`longitude`) as well as named cities (e.g., `Madrid`, `Barcelona`, `Sevilla`, `Valencia`, etc.) with built-in coordinates resolution.
-- **Optional Playwright Rendering:** For environments where full JavaScript execution is desired, Playwright is supported as an optional fallback when installed (`pip install playwright && playwright install chromium`).
+- **Dedicated Playwright Pipeline:** Playwright is the single, dedicated execution engine. It bypasses CloudFront WAF bot protections and renders client-side Next.js SPA content, capturing rich structured data from Wallapop's internal `api/v3/search/section` endpoints.
+- **Auto-Installation of Chromium:** The plugin automatically verifies if the Playwright package and the Chromium browser binary exist; if missing, it runs the installation automatically.
+- **Smart Location Handling:** Supports coordinate search (`latitude`/`longitude`) as well as named cities (e.g., `Madrid`, `Barcelona`, `Sevilla`, `Valencia`, etc.) with built-in coordinates resolution and localStorage setup.
 - **Rate limits / blocking:** Wallapop may rate-limit automated requests. Use responsibly and respect terms of service.
 
 ## Project layout

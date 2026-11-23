@@ -17,10 +17,5 @@ provides_tools:
   - wallapop_get_item
 
 # Python dependencies. Hermes installs these before enabling the plugin.
-# Bounded ranges: floor on an API-compatible version, upper bound at next major.
-# lxml >=6.0.1 is required for a cp314 wheel (Python 3.14); the 5.x series has
-# no cp314 wheel, so uv falls back to a source build that needs libxml2/libxslt.
 python_dependencies:
-  - "requests>=2.28,<3"
-  - "beautifulsoup4>=4.12,<5"
-  - "lxml>=4.9,<7"
+  - "playwright>=1.40,<2"
